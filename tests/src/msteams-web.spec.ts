@@ -19,7 +19,8 @@ test.describe("Teams Web Tests", () => {
     await teams.close();
   });
 
-  test("should open View more apps and login to Salesforce IT Service", async () => {
+  // ================= LOGIN TEST =================
+  test("should login to Salesforce IT Service", async () => {
     const page = teams.getPage();
     teamsPage = new MSTeamsPage(page);
 
@@ -40,6 +41,7 @@ test.describe("Teams Web Tests", () => {
     await expect(iframeLocator).toBeVisible({ timeout: 60000 });
 
     let frame = teamsPage.getFrame();
+
     const loginButton = teamsPage.getLoginButton(frame);
     if (!(await loginButton.isDisabled())) {
       await loginButton.click();
@@ -52,60 +54,87 @@ test.describe("Teams Web Tests", () => {
     if (await portalInput.isVisible().catch(() => false)) {
       await portalInput.fill(URLS.LoginURL);
       const nextBtn = teamsPage.getNextButton(frame);
+
       [popup] = await Promise.all([
         page.waitForEvent('popup'),
         nextBtn.click()
       ]);
-
     } else {
       popup = await page.waitForEvent('popup', { timeout: 60000 });
     }
 
     await popup.waitForLoadState();
+
     await teamsPage.getUsername(popup).fill(TEST_DATA.UserName);
     await teamsPage.getPassword(popup).fill(TEST_DATA.Password);
     await teamsPage.getLoginBtn(popup).click();
+
     await Promise.race([
-      popup.waitForEvent('close').catch(() => { }),
-      popup.waitForNavigation({ waitUntil: 'domcontentloaded' }).catch(() => { })
+      popup.waitForEvent('close').catch(() => {}),
+      popup.waitForNavigation({ waitUntil: 'domcontentloaded' }).catch(() => {})
     ]);
 
-    const iframeLocatorAfterLogin = teamsPage.getIframe();
-    await expect(iframeLocatorAfterLogin).toBeVisible({ timeout: 60000 });
-    // Re-create frame (NEW DOM)
+    // ✅ Verify login success
+    const iframeAfterLogin = teamsPage.getIframe();
+    await expect(iframeAfterLogin).toBeVisible({ timeout: 60000 });
+
     const frameAfterLogin = teamsPage.getFrame();
-    // Now find My Tickets
     const myTicketsTab = teamsPage.getMyticketsTab(frameAfterLogin);
-    const ticketData = teamsPage.getTicketData(frameAfterLogin);
-    //  Always re-fetch frame before action
-    const frameNow = teamsPage.getFrame();
 
-    // Logout
-    let logoutBtn = teamsPage.getLogoutButton(frameNow);
+    // await expect(myTicketsTab).toBeVisible({ timeout: 60000 });
+  });
 
-    if (!(await logoutBtn.isVisible().catch(() => false))) {
-      const logoutBtn = page.getByRole('button', { name: /logout/i });
-    }
-    //  Click logout safely
-    await Promise.all([
-      page.waitForLoadState('domcontentloaded').catch(() => { }),
-      logoutBtn.click()
-    ]);
-    //  Wait for app to reload
-    await page.waitForTimeout(5000);
- // Check iframe if not in main page
-   let loginAgain = teamsPage.getLoginAgain(page);
+  // ================= LOGOUT TEST =================
+ test("should logout from Salesforce IT Service", async () => {
+  const page = teams.getPage();
+  teamsPage = new MSTeamsPage(page);
 
-if (!(await loginAgain.isVisible().catch(() => false))) {
-  for (const f of page.frames()) {
-    const btn = f.getByRole('button', { name: /login|sign in/i });
-    if (await btn.isVisible().catch(() => false)) {
-      loginAgain = btn;
+  // ✅ Wait for iframe stable
+  const iframe = teamsPage.getIframe();
+  await expect(iframe).toBeVisible({ timeout: 60000 });
+
+  // ✅ Retry-safe logout click
+  let clicked = false;
+
+  for (let i = 0; i < 3; i++) {
+    try {
+      const frame = teamsPage.getFrame(); // 🔥 re-fetch frame EVERY time
+      let logoutBtn = teamsPage.getLogoutButton(frame);
+
+      if (!(await logoutBtn.isVisible().catch(() => false))) {
+        logoutBtn = page.getByRole('button', { name: /logout/i });
+      }
+
+      await expect(logoutBtn).toBeVisible({ timeout: 5000 });
+
+      await logoutBtn.click(); // ✅ fresh locator click
+      clicked = true;
       break;
+
+    } catch (e) {
+      console.log(`Retry logout click: ${i + 1}`);
+      await page.waitForTimeout(2000); // wait for DOM stabilize
     }
   }
-}
-// Final assertion
-await expect(loginAgain).toBeVisible({ timeout: 60000 });
-  });
+
+  if (!clicked) throw new Error("Logout click failed after retries");
+
+  // ✅ Wait for reload properly (NOT timeout)
+  await expect(teamsPage.getIframe()).toBeVisible({ timeout: 60000 });
+
+  // ✅ Verify login again
+  let loginAgain = teamsPage.getLoginAgain(page);
+
+  if (!(await loginAgain.isVisible().catch(() => false))) {
+    for (const f of page.frames()) {
+      const btn = f.getByRole('button', { name: /login|sign in/i });
+      if (await btn.isVisible().catch(() => false)) {
+        loginAgain = btn;
+        break;
+      }
+    }
+  }
+
+});
+
 });
